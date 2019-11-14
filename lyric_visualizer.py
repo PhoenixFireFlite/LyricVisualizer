@@ -10,6 +10,7 @@ geniusIdUrl = 'http://www.genius.com/songs/'
 geniusNameUrl = 'https://genius.com/'
 geniusSongSearchUrl = 'https://genius.com/api/search/song?page=1&q={0}'
 
+# You might need to run "pip install Pillow" for saving to work!
 
 def getSongByInteractiveQuery(query):
     rawJson = requests.get(geniusSongSearchUrl.format(str(query).replace(' ','+'))).content
@@ -94,13 +95,16 @@ def getLyrics(apiId):
 def getLyricMatrixByQuery(query, choiceIndex):
     return getLyricMatrix(getSongIdByQuery(query, choiceIndex))
 
-def getLyricMatrix(apiId):
+def getLyricMatrix(apiId, removeSingleWordRepeats=True):
     lyrics = getLyrics(apiId)
-    if lyrics is None: return
+    if lyrics is None:
+        return
 
     lyrics = lyrics.lower()
     lyrics = (re.compile('[%s]' % re.escape(string.punctuation))).sub('', lyrics)
     lyrics = lyrics.split(' ')
+
+    lyricLength = len(lyrics)
     lyricMap = []
 
     index = 0
@@ -116,27 +120,25 @@ def getLyricMatrix(apiId):
 
         lyricMap.append(wordIndex)
 
-    lyricTuples = {(i, j): 0 for i in range(len(lyricMap)) for j in range(len(lyricMap))}
+    mat = np.zeros((lyricLength, lyricLength))
 
-    for x in range(len(lyricMap)):
-        for y in range(len(lyricMap)):
+    for x in range(lyricLength):
+        for y in range(lyricLength):
             if lyricMap[x] == lyricMap[y]:
-                lyricTuples[(x, y)] = lyricMap[x]
+                mat[x][y] = lyricMap[x]
 
-    lyricMatrix = []
-    for x in range(len(lyricMap)):
-        t = []
-        for y in range(len(lyricMap)):
-            t.append(lyricTuples[(x, y)])
-        lyricMatrix.append(t)
+    if removeSingleWordRepeats:
+        for x in range(lyricLength):
+            for y in range(lyricLength):
+                if mat[x][y] != 0:
+                    if x > 0 and y > 0 and mat[x - 1][y - 1] == 0 and \
+                            ((x < lyricLength - 1 and y < lyricLength - 1 and mat[x + 1][y + 1] == 0) or
+                             (x == lyricLength - 1 and (x == lyricLength - 1 or y == lyricLength - 1))):
+                        mat[x][y] = 0
 
-    return lyricMatrix
+    return mat
 
 def slugify(value):
-    """
-    Normalizes string, converts to lowercase, removes non-alpha characters,
-    and converts spaces to hyphens.
-    """
     import unicodedata
     value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore').decode('utf-8')
     value = re.sub('[^\w\s-]', '', value).strip().lower()
@@ -147,21 +149,25 @@ def slugify(value):
 def saveLyricMatrix(lyricMatrix, cmap=plt.cm.hsv, backgroundColor='#181718', saveName='tempSave.png'):
     if lyricMatrix is None: return
 
-    npArray = np.array(lyricMatrix)
+    npArray = lyricMatrix
     lyricLength = len(lyricMatrix)
     plt.xlim([0, lyricLength])
     plt.ylim([0, lyricLength])
     cmap.set_under(color=backgroundColor)
-    # plt.imshow(npArray, cmap=cmap, vmin=0.0000001)
+    # plt.imshow(npArray, cmap=cmap, vmin=0.1)
     plt.imsave(saveName, np.rot90(npArray), cmap=cmap, vmin=0.0000001)
     print('File saved as {}'.format(saveName))
     # plt.show()
 
-# You might need to run "pip install Pillow" for saving to work!
 
-while True:
-    queryInput = input('\nInput a query for your song choice: ')
-    songId, songName = getSongByInteractiveQuery(queryInput)
-    if songId is None: continue
-    lyricMatrix = getLyricMatrix(songId)
-    saveLyricMatrix(lyricMatrix, cmap=plt.cm.hsv, backgroundColor='#181718', saveName=slugify(songName)+".png")
+removeSingleWordRepeats = True
+
+if __name__ == "__main__":
+    while True:
+        queryInput = input('\nInput a query for your song choice: ')
+        songId, songName = getSongByInteractiveQuery(queryInput)
+        if songId is None: continue
+        lyricMatrix = getLyricMatrix(songId, removeSingleWordRepeats)
+        fileName = "lyricMatrices/"+slugify(songName)+('_RSWR' if removeSingleWordRepeats else '')+".png"
+        saveLyricMatrix(lyricMatrix, cmap=plt.cm.hsv, backgroundColor='#181818', saveName=fileName)
+
